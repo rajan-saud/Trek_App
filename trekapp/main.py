@@ -1,4 +1,6 @@
 from crypt import methods
+from ctypes import addressof
+import email
 from lib2to3.pgen2 import token
 from sqlite3 import Cursor
 from flask import Flask,render_template, request,redirect,flash,jsonify,session
@@ -48,7 +50,7 @@ def registration():
         if form.validate_on_submit():
             resp = cursor.execute('''SELECT * FROM users where email LIKE %s''',[form.email.data])
             if resp == 0:
-                cursor.execute('''INSERT INTO users values(NUll,%s,%s,%s,%s,%s,%s)''',(form.first_name.data,form.last_name.data,form.address.data,form.phone_number.data,form.email.data,form.password1.data))
+                cursor.execute('''INSERT INTO users values(NULL,%s,%s,%s,%s,%s,%s,NULL)''',(form.first_name.data,form.last_name.data,form.address.data,form.phone_number.data,form.email.data,form.password1.data))
                 mysql.connection.commit()
                 cursor.close()
                 flash("User successfully registered.","success")
@@ -145,6 +147,32 @@ def getAllTreksAPI():
     return jsonify({'treks':treks})
 
 
+@app.route('/api/register',methods=['POST'])
+def registerAPI():
+    first_name = request.json['first_name']
+    last_name = request.json['last_name']
+    address = request.json['address']
+    phone_number = request.json['phone_number']
+    email = request.json['email']
+    password1 =request.json['password1']
+    password2 =request.json['password2']
+
+    cursor = mysql.connection.cursor()
+    resp = cursor.execute('''SELECT * FROM users where email LIKE %s''',(email,))
+    cursor.close()
+    if resp == 1:
+        return jsonify({"message":"Email already taken."})
+    elif password1 != password2:
+        return jsonify({'message':'Passwords do not match.'})
+    else:
+        cursor = mysql.connection.cursor()
+        cursor.execute('''INSERT INTO users values(NUll,%s,%s,%s,%s,%s,%s,NULL)''',(first_name,last_name,address,phone_number,email,password1))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message':'User successfully registered.'})
+
+
+
 @app.route('/api/login',methods=['POST'])
 def logiAPI():
     email = request.json['email']
@@ -201,6 +229,47 @@ def addTrekAPI():
 
     return jsonify({'message':'Trek Destination successfully added.'})
 
+
+@app.route('/api/updateTrek',methods=['PUT'])
+def updateTrekAPI():
+    trekID = request.json['trekID']
+    title = request.json['title']
+    days = request.json['days']
+    difficulty = request.json['difficulty']
+    total_cost = request.json['total_cost']
+    token = request.json['token'] or None
+    if __validateToken(token) is False:
+        return jsonify({'message':'Please enter a valid token.'})
+
+    userID = __getUserID(token)
+
+    cursor = mysql.connection.cursor()
+    resp=cursor.execute('''UPDATE `trek_destinations` SET `title`=%s, `days`=%s, `difficulty`=%s, `total_cost`=%s WHERE `id`=%s and `user_id`=%s''',(title,days,difficulty,total_cost,trekID,userID))
+    if resp == 0:
+        return jsonify({"message":"You have no persmission to update others' trek destinations."})
+    mysql.connection.commit()
+    cursor.close()
+
+    return jsonify({'message':'Trek Destination has been successfully added.'})
+
+@app.route('/api/deleteTrek',methods=['DELETE'])
+def deleteTrekAPI():
+    trekID = request.json['trekID']
+    token = request.json['token'] or None
+    if __validateToken(token) is False:
+        return jsonify({'message':'Please enter a valid token.'})
+
+    userID = __getUserID(token)
+
+    cursor = mysql.connection.cursor()
+    resp=cursor.execute('''DELETE FROM `trek_destinations` WHERE `id`=%s and `user_id`=%s''',(trekID,userID))
+    if resp == 0:
+        return jsonify({"message":"You have no persmission to delete others' trek destinations."})
+    mysql.connection.commit()
+    cursor.close()
+
+    return jsonify({'message':'Trek Destination has been successfully deleted.'})
+
 # Validates if provided token exists 
 def __validateToken(token):
     cursor = mysql.connection.cursor()         
@@ -211,6 +280,15 @@ def __validateToken(token):
         return False
     return True
 
+# Gets logged in user's ID from the token 
+def __getUserID(token):
+    cursor = mysql.connection.cursor()         
+    cursor.execute('''SELECT id FROM `users` WHERE  token = %s''',(token,))
+    user =  cursor.fetchone()
+    cursor.close()
+
+    userID = user[0]
+    return userID
 
 
 
